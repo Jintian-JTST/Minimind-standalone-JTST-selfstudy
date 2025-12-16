@@ -3,6 +3,7 @@ import sys
 
 __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import torch_directml
 
 import argparse
 import time
@@ -42,14 +43,15 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             loss += res.aux_loss
             loss = loss / args.accumulation_steps
 
-        scaler.scale(loss).backward()
+        loss.backward()
+
 
         if (step + 1) % args.accumulation_steps == 0:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
 
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
+            #scaler.update()
 
             optimizer.zero_grad(set_to_none=True)
             torch.cuda.empty_cache()
