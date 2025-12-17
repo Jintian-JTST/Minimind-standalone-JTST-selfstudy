@@ -146,6 +146,19 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
         x[:, :, :, None, :].expand(bs, slen, num_key_value_heads, n_rep, head_dim).reshape(bs, slen, num_key_value_heads * n_rep, head_dim)
     )
 
+def _naive_causal_attention(xq, xk, xv, dropout_p: float = 0.0, training: bool = False):
+    # xq, xk, xv: [B, H, T, D]
+    d = xq.size(-1)
+    scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(d)          # [B, H, T, T]
+    T = scores.size(-1)
+    causal_mask = torch.triu(torch.ones((T, T), device=scores.device, dtype=torch.bool), diagonal=1)
+    scores = scores.masked_fill(causal_mask, float("-inf"))
+    attn = torch.softmax(scores, dim=-1)
+    if training and dropout_p and dropout_p > 0:
+        attn = F.dropout(attn, p=dropout_p)
+    return attn @ xv                                              # [B, H, T, D]
+
+
 
 class Attention(nn.Module):
     def __init__(self, args: MiniMindConfig):
@@ -194,7 +207,14 @@ class Attention(nn.Module):
         )
 
         if self.flash and seq_len > 1 and (attention_mask is None or torch.all(attention_mask == 1)):
-            output = F.scaled_dot_product_attention(xq, xk, xv, dropout_p=self.dropout if self.training else 0.0, is_causal=True)
+            if xq.device.type == "privateuseone":  # DirectML
+                output = _naive_causal_attention(xq, xk, xv, dropout_p=self.dropout if self.training else 0.0, training=self.training)
+            else:
+                output = F.scaled_dot_product_attention(
+                    xq, xk, xv,
+                    dropout_p=self.dropout if self.training else 0.0,
+                    is_causal=True
+                )
         else:
             scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
             scores = scores + torch.triu(
