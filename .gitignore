@@ -1,5 +1,12 @@
-model/__pycache__
-out
-website/
-docs-minimind/
-datasets
+# data
+dataset/
+*.jsonl
+
+# weights / outputs
+out/
+checkpoints/
+*.pth
+*.pt
+
+# cache
+__pycache__/
