@@ -102,18 +102,28 @@ def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoc
         return None
 
 
-def init_model(lm_config, from_weight='pretrain', tokenizer_path='../model', save_dir='../out', device='cuda'):
+def init_model(lm_config, from_weight='pretrain', tokenizer_path='../model', save_dir='../out', device='cpu'):
+    device = str(device)  # 关键：统一成字符串
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     model = MiniMindForCausalLM(lm_config)
 
-    if from_weight!= 'none':
+    if from_weight != 'none':
         moe_suffix = '_moe' if lm_config.use_moe else ''
         weight_path = f'{save_dir}/{from_weight}_{lm_config.hidden_size}{moe_suffix}.pth'
-        weights = torch.load(weight_path, map_location=device)
+
+        # 关键：无论权重里标记的是啥设备，load 阶段都先落到 CPU，避免 DirectML 的 torch.device 兼容问题
+        weights = torch.load(weight_path, map_location='cpu')
         model.load_state_dict(weights, strict=False)
 
     Logger(f'所加载Model可训练参数：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
+
+    if device.startswith("privateuseone"):
+        import torch_directml
+        dml = torch_directml.device(0)
+        return model.to(dml), tokenizer
+
     return model.to(device), tokenizer
+
 
 
 class SkipBatchSampler(Sampler):
