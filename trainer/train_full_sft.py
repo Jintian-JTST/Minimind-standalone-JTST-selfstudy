@@ -24,6 +24,28 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
     loss_fct = nn.CrossEntropyLoss(reduction='none')
     start_time = time.time()
     for step, (X, Y, loss_mask) in enumerate(loader, start=start_step + 1):
+        # --- debug: 只打印第一个 batch 的关键信息一次 ---
+        if step == start_step + 1:
+            print("DEBUG SAMPLE SHAPE:", "X", X.shape, "Y", Y.shape, "loss_mask", loss_mask.shape)
+            # loss_mask 非零项数量
+            nonmask = (loss_mask != 0).sum().item()
+            total = loss_mask.numel()
+            print(f"DEBUG loss_mask nonzero: {nonmask}/{total} ({nonmask/total:.3f})")
+            # 打印前 1 样本前 200 token 的 token & label
+            ids = X[0].cpu().tolist()
+            labs = Y[0].cpu().tolist()
+            lm = loss_mask[0].cpu().tolist()
+            from itertools import islice
+            snippet_len = min(120, len(ids))
+            for i in range(snippet_len):
+                try:
+                    tok = tokenizer.decode([ids[i]])
+                except Exception:
+                    tok = f"[{ids[i]}]"
+                print(f"{i:03d} | token_id={ids[i]:5d} | label={labs[i]:5d} | mask={lm[i]} | tok={tok!r}")
+            # stop printing more
+            print("END DEBUG\n")
+
         X = X.to(args.device)
         Y = Y.to(args.device)
         loss_mask = loss_mask.to(args.device)
@@ -88,7 +110,7 @@ if __name__ == "__main__":
     parser.add_argument('--save_weight', default='full_sft', type=str, help="保存权重的前缀名")
     parser.add_argument("--epochs", type=int, default=2, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=16, help="batch size")
-    parser.add_argument("--learning_rate", type=float, default=5e-7, help="初始学习率")
+    parser.add_argument("--learning_rate", type=float, default=2e-5, help="初始学习率")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
     parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
     parser.add_argument("--num_workers", type=int, default=1, help="数据加载线程数")
