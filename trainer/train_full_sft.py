@@ -117,10 +117,22 @@ if __name__ == "__main__":
     lm_config = MiniMindConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=bool(args.use_moe))
     ckp_data = lm_checkpoint(lm_config, weight=args.save_weight, save_dir='../checkpoints') if args.from_resume==1 else None
     
-    # ========== 3. 设置混合精度 ==========
+    # ========== 3. 设置混合精度与 autocast ==========
     device_type = "cuda" if "cuda" in args.device else "cpu"
-    dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
-    autocast_ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
+
+    # 支持选项: 'fp32', 'fp16', 'bfloat16'
+    if args.dtype == "bfloat16":
+        autocast_dtype = torch.bfloat16
+        use_amp = True
+    elif args.dtype == "fp16":
+        autocast_dtype = torch.float16
+        use_amp = True
+    else:  # 'fp32' 或其他 -> 不使用 autocast
+        autocast_dtype = None
+        use_amp = False
+
+    autocast_ctx = nullcontext() if (device_type == "cpu" or not use_amp) else torch.cuda.amp.autocast(dtype=autocast_dtype)
+    scaler = torch.cuda.amp.GradScaler(enabled=(device_type == "cuda" and use_amp))
     
     # ========== 4. 配wandb ==========
     wandb = None
