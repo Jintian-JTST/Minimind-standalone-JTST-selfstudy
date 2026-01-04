@@ -55,12 +55,18 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
 
         with autocast_ctx:
             res = model(X)
-            loss = loss_fct(
-                res.logits.view(-1, res.logits.size(-1)),
-                Y.view(-1)
-            ).view(Y.size())
 
-            loss = (loss * loss_mask).sum() / loss_mask.sum()
+            # ===== 关键修复：对齐 causal LM =====
+            logits = res.logits[:, :-1, :].contiguous()   # (B, T-1, V)
+            labels = Y[:, 1:].contiguous()                # (B, T-1)
+            mask   = loss_mask[:, 1:].contiguous()        # (B, T-1)
+
+            loss = loss_fct(
+                logits.view(-1, logits.size(-1)),
+                labels.view(-1)
+            ).view(labels.size())
+
+            loss = (loss * mask).sum() / mask.sum().clamp_min(1.0)
             loss += res.aux_loss
             loss = loss / args.accumulation_steps
 
@@ -169,7 +175,7 @@ if __name__ == "__main__":
     model, tokenizer = init_model(lm_config, args.from_weight, device=args.device)
     train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
-    scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
+    #scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     
     # ========== 6. 从ckp恢复状态 ==========
