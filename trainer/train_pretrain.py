@@ -33,15 +33,26 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             param_group['lr'] = lr
 
         with autocast_ctx:
+            # ... inside loop ...
             res = model(X)
-            loss = loss_fct(
-                res.logits.view(-1, res.logits.size(-1)),
-                Y.view(-1)
-            ).view(Y.size())
 
-            loss = (loss * loss_mask).sum() / loss_mask.sum()
+            # [FIX] 手动进行 Shift (错位)，让模型预测下一个 token
+            # logits 丢掉最后一个，labels 丢掉第一个
+            shift_logits = res.logits[:, :-1, :].contiguous()
+            shift_labels = Y[:, 1:].contiguous()
+            shift_mask = loss_mask[:, 1:].contiguous() # mask 也要对应错位
+
+            # 计算 Loss
+            loss = loss_fct(
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_labels.view(-1)
+            ).view(shift_labels.size())
+
+            # 使用错位后的 mask 计算平均 loss
+            loss = (loss * shift_mask).sum() / shift_mask.sum()
             loss += res.aux_loss
             loss = loss / args.accumulation_steps
+            # ...
 
         loss.backward()
 
